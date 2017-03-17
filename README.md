@@ -9,8 +9,8 @@ cytoscape-matterjs
 
 ## Dependencies
 
- * Cytoscape.js ^x.y.z
- * <List your dependencies here please>
+ * Cytoscape.js 2.7.15
+ * MatterJS 0.12.0
 
 
 ## Usage instructions
@@ -46,9 +46,16 @@ Please briefly describe your API here:
 
 ```js
 cy.matterjs({
-  foo: 'bar', // some option that does this
-  baz: 'bat' // some options that does that
-  // ... and so on
+  refreshInterval: 16, // in ms
+  refreshIterations: 10, // iterations until thread sends an update
+  fit: true,
+  gravity: -10, // the force each node applies to others
+  globalAirFriction: 0.25, // set the air friction for the simulation
+  clusters: [], // specifies groups of nodes that will be attracted to an average point between them
+  mass: [], // maps a node id to a mass value for use in the simulation with a {id: 'IDENTIFICATION', mass: 15}. If a mass is not specified for a particular node the layout assigns it a mass of 10
+  tickTimeout: 2000, // the number of ticks before the simulation times out
+  updateOn: 1, // the number of ticks that pass before a graphical update. The default is 1, and so the graphics update every tick
+  depthRestrict: true,
 });
 ```
 
