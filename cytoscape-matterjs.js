@@ -1,22 +1,20 @@
 ;(function(){ 'use strict';
 
   // registers the extension on a cytoscape lib ref
-  var register = function( cytoscape ){
+  var register = function( cytoscape, Matter ){
 
     if( !cytoscape ){ return; } // can't register if cytoscape unspecified
 
     var defaults = {
       // define the default options for your layout here
-      refreshInterval: 16, // in ms
-      refreshIterations: 10, // iterations until thread sends an update
+      refresh: 10, // iterations until thread sends an update
       fit: true,
       gravity: -10,
       globalAirFriction: 0.25,
       clusters: [],
       mass: [],
-      tickTimeout: 2000,
-      updateOn: 1,
-      depthRestrict: true,
+      maxTicks: 2000,
+      maxSimulationTime: 5000 // time in ms before layout bails out
     };
 
     var extend = Object.assign || function( tgt ){
@@ -67,40 +65,25 @@
       // layout specific variables
       var matterNodes = [];
       var matterEdges = [];
-      //var matterCenterSprings = [{ id: 'top', children: [] }];
 
-// +------------------------------------------------------------------------+ //
-// +-----------------ADDS NODES TO THE MATTER JS SIMULATION-----------------+ //
-// +------------------------------------------------------------------------+ //
-// +------------------------------------------------------------------------+ //
 
-      /*function addToCenterSprings(i) {
-        if (matterNodes[i].parent !== undefined) {
-          for (var j = 0; j < matterCenterSprings.length; j++) {
-            if (matterCenterSprings[j].id === matterNodes[i].parent) {
-              matterCenterSprings[j].children.push({ id: matterNodes[i].shape.id, x: matterNodes[i].shape.position.x, y: matterNodes[i].shape.position.y });
-            }
-          }
-        } else {
-          for (var j = 0; j < matterCenterSprings.length; j++) {
-            if (matterCenterSprings[j].id === 'top') {
-              matterCenterSprings[j].children.push({ id: matterNodes[i].shape.id, x: matterNodes[i].shape.position.x, y: matterNodes[i].shape.position.y });
-            }
-          }
-        }
-      }*/
 
-      function mapNode(nodeIn, currentMatterNode) {
+      // +------------------------------------------------------------------------+ //
+      // +-----------------ADDS NODES TO THE MATTER JS SIMULATION-----------------+ //
+      // +------------------------------------------------------------------------+ //
+      // +------------------------------------------------------------------------+ //
+
+      function mapNode(nodeIn) { // TODO naming
         if (nodeIn.parent().length === 0) {
           var mass = 10;
           for (var j = 0; j < options.mass.length; j++) {
             if (options.mass[j].id === nodeIn.id()) {
               mass = options.mass[j].mass;
-              console.log(options.mass[j]);
             }
           }
+          var temp;
           if (nodeIn.children().length > 0) {
-            matterNodes.push({
+            temp = {
               shape: Bodies.rectangle(
                 nodeIn.position().x,
                 nodeIn.position().y,
@@ -118,14 +101,15 @@
               children: [],
               oldX: nodeIn.position().x,
               oldY: nodeIn.position().y
-            });
+            };
+            for (var j = 0; j < nodeIn.children().length; j++) {
+              temp.children[j] = nodeIn.children()[j].data().id;
+            }
+            matterNodes.push(temp);
 
-            World.addBody(engine.world, matterNodes[currentMatterNode].shape);
-            //matterCenterSprings.push({ id: matterNodes[currentMatterNode].shape.id, children: [] });
-
-            //addToCenterSprings(currentMatterNode);
+            World.addBody(engine.world, temp.shape);
           } else {
-            matterNodes.push({
+            temp = {
               shape:Bodies.circle(
                 nodeIn.position().x,
                 nodeIn.position().y,
@@ -142,69 +126,125 @@
               children: [],
               oldX: nodeIn.position().x,
               oldY: nodeIn.position().y
-            });
-            console.log(matterNodes[currentMatterNode]);
-            World.addBody(engine.world, matterNodes[currentMatterNode].shape);
-            //addToCenterSprings(currentMatterNode);
+            }
+            matterNodes.push(temp);
+            World.addBody(engine.world, temp.shape);
           }
-          for (var j = 0; j < nodeIn.children().length; j++) {
-            matterNodes[currentMatterNode].children[j] = nodeIn.children()[j].data().id;
-          }
-          currentMatterNode++;
+          nodeIn.scratch('matter', temp);
+          temp._cyEle = nodeIn;
         }
-        return currentMatterNode;
+
+        // TODO same approach w/ edges
       }
 
-      function handleClusters(){
-        var xAvg = 0;
-        var yAvg = 0;
-        for (var j = 0; j < options.clusters[i].nodes.length; j++) {
-          for (var k = 0; k < nodes.length; k++) {
-            if (nodes[k].data().id === options.clusters[i].nodes[j]) {
-              if(nodes[k].position() !== undefined){
-                xAvg += nodes[k].position().x;
-                yAvg += nodes[k].position().y;
+      function handleCluster( cluster ){
+        var cNodes = cluster.nodes;
+
+        if(cluster.center !== undefined) {
+
+          var xTemp = cluster.center.x;
+          var yTemp =  cluster.center.y;
+
+          for (var j = 0; j < cNodes.length; j++) {
+            var node = cNodes[j];
+            for (var k = 0; k < matterNodes.length; k++) {
+              if (matterNodes[k].shape.id === node) {
+                World.add(world, Constraint.create({
+                  bodyA: matterNodes[k].shape,
+                  pointB: { x: xTemp, y: yTemp },
+                  length: cluster.distanceFromCluster,
+                  stiffness: cluster.elasticityToCluster
+                }));
               }
             }
           }
-        }
-        for (var j = 0; j < options.clusters[i].nodes.length; j++) {
-          for (var k = 0; k < matterNodes.length; k++) {
-            if (matterNodes[k].shape.id === options.clusters[i].nodes[j]) {
-              World.add(world, Constraint.create({
-                bodyA: matterNodes[k].shape,
-                pointB: { x: xAvg/options.clusters[i].nodes.length, y: yAvg/options.clusters[i].nodes.length },
-                length: options.clusters[i].distanceFromCluster,
-                stiffness: options.clusters[i].elasticityToCluster
-              }));
+
+        } else if(cluster.random !== undefined) {
+
+          var xTemp = Math.random()*(cluster.random.xMax-cluster.random.xMin)+cluster.random.xMin;
+          var yTemp = Math.random()*(cluster.random.yMax-cluster.random.yMin)+cluster.random.yMin;
+
+          for (var j = 0; j < cNodes.length; j++) {
+            var node = cNodes[j];
+
+            for (var k = 0; k < matterNodes.length; k++) {
+              if (matterNodes[k].shape.id === node) {
+                World.add(world, Constraint.create({
+                  bodyA: matterNodes[k].shape,
+                  pointB: { x: xTemp, y: yTemp },
+                  length: cluster.distanceFromCluster,
+                  stiffness: cluster.elasticityToCluster
+                }));
+              }
             }
           }
+
+        } else {
+
+          var xAvg = 0;
+          var yAvg = 0;
+          for (var j = 0; j < cNodes.length; j++) {
+            var n = cNodes[j];
+            var p = n.position();
+            xAvg += p.x;
+            yAvg += p.y;
+          }
+
+          for (var j = 0; j < cNodes.length; j++) {
+            var node = cNodes[j];
+
+            for (var k = 0; k < matterNodes.length; k++) {
+              if (matterNodes[k].shape.id === node) {
+                World.add(world, Constraint.create({
+                  bodyA: matterNodes[k].shape,
+                  pointB: { x: xAvg/cNodes.length, y: yAvg/cNodes.length },
+                  length: cluster.distanceFromCluster,
+                  stiffness: cluster.elasticityToCluster
+                }));
+              }
+            }
+          }
+
         }
       }
 
       function mapNodes(nodesIn) {
-        var currentMatterNode = 0;
         for (var i = 0; i < nodesIn.length; i++) {
-          console.log(nodesIn[i]);
-          currentMatterNode = mapNode(nodesIn[i], currentMatterNode);
+          mapNode(nodesIn[i]);
         }
-        for (var i = 0; i < options.clusters.length; i++) {
-          handleClusters();
+
+        var clusters = options.clusters;
+        for( var i = 0; i < clusters.length; i++ ){
+          handleCluster( clusters[i] );
         }
+
         return 0;
       }
-      mapNodes(nodes);
 
-// +------------------------------------------------------------------------+ //
-// +----------------ADDS EDGES TO THE MATTER JS SIMULATION------------------+ //
-// +------------------------------------------------------------------------+ //
-// +------------------------------------------------------------------------+ //
 
+
+      // +------------------------------------------------------------------------+ //
+      // +----------------ADDS EDGES TO THE MATTER JS SIMULATION------------------+ //
+      // +------------------------------------------------------------------------+ //
+      // +------------------------------------------------------------------------+ //
+
+      // TODO use same approach for edge <=> matter w/ scratch & ref
       function mapEdges(edgesIn){
         for (var i = 0; i < edgesIn.length; i++) {
+
           var tempSource;
           var tempTarget;
-          for (var j = 0; j < matterNodes.length; j++) {
+
+          edgesIn[i].source().scratch('matter');
+          matterEdges.push(Constraint.create({
+            bodyA: edgesIn[i].source().scratch('matter');,
+            bodyB: edgesIn[i].target().scratch('matter');,
+            length: 400,
+            stiffness: 0.05,
+          }));
+          World.add(world, matterEdges[i]);
+          edgesIn[i].scratch('matter', temp);
+          /*for (var j = 0; j < matterNodes.length; j++) {
             if (matterNodes[j].shape.id === edgesIn[i].data().source) {
               tempSource = matterNodes[j].shape;
               for (j; j < matterNodes.length; j++) {
@@ -229,59 +269,50 @@
               stiffness: 0.05,
             }));
             World.add(world, matterEdges[i]);
+            edgesIn[i].scratch('matter', temp);
+            //temp._cyEle = nodeIn; //This wasn't needed because the edge never looks itself up.
           }
-        }
+        }*/
       }
+
+
+
+
+      // +------------------------------------------------------------------------+ //
+      // +-------------EVENT MANAGEMENT OF THE MATTER JS SIMULATION---------------+ //
+      // +------------------------------------------------------------------------+ //
+      // +------------------------------------------------------------------------+ //
+
+      mapNodes(nodes);
       mapEdges(edges);
 
-// +------------------------------------------------------------------------+ //
-// +-------------EVENT MANAGEMENT OF THE MATTER JS SIMULATION---------------+ //
-// +------------------------------------------------------------------------+ //
-// +------------------------------------------------------------------------+ //
-
-      Runner.start(runner, engine);
-
-      var objectsBefore = [];
-      var objectsAfter = [];
-      var tempWorld;
+      var getPos = function (i, ele) {    
+          ele.scratch('matter').oldX = ele.position().x;
+          ele.scratch('matter').oldY = ele.position().y;
+          return {
+            x: ele.scratch('matter').shape.position.x,
+            y: ele.scratch('matter').shape.position.y
+          };
+      };
 
       var tickCount = 0;
+      var startTime = Date.now();
       Events.on(runner, 'afterTick', function () {
+        var now = Date.now();
         tickCount++;
-        if ((tickCount % options.updateOn) === 0) {
+
+        if ((tickCount % options.refresh) === 0) {
           //console.log(matterNodes);
           nodes.layoutPositions(layout, options, getPos);
         }
-        if (tickCount >= options.tickTimeout) {
+
+        if (tickCount >= options.maxTicks || now - startTime >= options.maxSimulationTime) {
           Runner.stop(runner);
         }
       });
 
-      var getPos = function (i, ele) {
-        if (ele.parent().length !== 0) {
-          for (var j = 0; j < matterNodes.length; j++) {
-            if (matterNodes[j].shape.id === ele.parent().id()) {
-              return {
-                x: (matterNodes[j].shape.position.x - matterNodes[j].oldX) + nodes[i].position().x,
-                y: (matterNodes[j].shape.position.y - matterNodes[j].oldY) + nodes[i].position().y
-              };
-            }
-          }
-        } else {
-          for (var j = 0; j < matterNodes.length; j++) {
-            if (matterNodes[j].shape.id === nodes[i].id()) {
-              //console.log(nodes[i].position());
-              matterNodes[j].oldX = nodes[i].position().x;
-              matterNodes[j].oldY = nodes[i].position().y;
-              console.log(matterNodes[j]);
-              return {
-                x: matterNodes[j].shape.position.x,
-                y: matterNodes[j].shape.position.y
-              };
-            }
-          }
-        }
-      };
+      Runner.start(runner, engine);
+
       return this;
     };
 
@@ -290,17 +321,15 @@
   };
 
   if( typeof module !== 'undefined' && module.exports ){ // expose as a commonjs module
-    module.exports = register;
+    module.exports = register; // TODO fn w/ req manfred TODO
   }
 
   if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
     define('cytoscape-matterjs', function(){
       return register;
     });
-  }
-
-  if( typeof cytoscape !== 'undefined' ){ // expose to global cytoscape (i.e. window.cytoscape)
-    register( cytoscape );
+  } else if( typeof cytoscape !== 'undefined' ){ // expose to global cytoscape (i.e. window.cytoscape)
+    register( cytoscape ); // TODO ck matter gl TODO
   }
 
 })();
