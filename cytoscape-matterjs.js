@@ -1,7 +1,7 @@
 ;(function(){ 'use strict';
 
   // registers the extension on a cytoscape lib ref
-  var register = function( cytoscape, Matter ){
+  var register = function( cytoscape, Matter/*, MatterGravity*/ ){
 
     if( !cytoscape ){ return; } // can't register if cytoscape unspecified
 
@@ -59,7 +59,7 @@
       var world = engine.world;
       var runner = Runner.create();
 
-      Matter.use('matter-gravity');
+      Matter.use('matter-attractors', 'matter-gravity');
       world.gravity.scale = 0;
 
       // layout specific variables
@@ -73,7 +73,7 @@
       // +------------------------------------------------------------------------+ //
       // +------------------------------------------------------------------------+ //
 
-      function mapNode(nodeIn) { // TODO naming
+      function mapNode(nodeIn) {
         if (nodeIn.parent().length === 0) {
           var mass = 10;
           for (var j = 0; j < options.mass.length; j++) {
@@ -126,7 +126,7 @@
               children: [],
               oldX: nodeIn.position().x,
               oldY: nodeIn.position().y
-            }
+            };
             matterNodes.push(temp);
             World.addBody(engine.world, temp.shape);
           }
@@ -134,7 +134,6 @@
           temp._cyEle = nodeIn;
         }
 
-        // TODO same approach w/ edges
       }
 
       function handleCluster( cluster ){
@@ -235,44 +234,16 @@
           var tempSource;
           var tempTarget;
 
-          edgesIn[i].source().scratch('matter');
-          matterEdges.push(Constraint.create({
-            bodyA: edgesIn[i].source().scratch('matter');,
-            bodyB: edgesIn[i].target().scratch('matter');,
+          var temp = Constraint.create({
+            bodyA: edgesIn[i].source().scratch('matter').shape,
+            bodyB: edgesIn[i].target().scratch('matter').shape,
             length: 400,
             stiffness: 0.05,
-          }));
+          });
+          matterEdges.push(temp);
           World.add(world, matterEdges[i]);
           edgesIn[i].scratch('matter', temp);
-          /*for (var j = 0; j < matterNodes.length; j++) {
-            if (matterNodes[j].shape.id === edgesIn[i].data().source) {
-              tempSource = matterNodes[j].shape;
-              for (j; j < matterNodes.length; j++) {
-                if (matterNodes[j].shape.id === edgesIn[i].data().target) {
-                  tempTarget = matterNodes[j].shape;
-                }
-              }
-            } else if (matterNodes[j].shape.id === edgesIn[i].data().target) {
-              tempTarget = matterNodes[j].shape;
-              for (j; j < matterNodes.length; j++) {
-                if (matterNodes[j].shape.id === edgesIn[i].data().source) {
-                  tempSource = matterNodes[j].shape;
-                }
-              }
-            }
-          }
-          if (tempSource !== undefined && tempTarget !== undefined) {
-            matterEdges.push(Constraint.create({
-              bodyA: tempSource,
-              bodyB: tempTarget,
-              length: 400,
-              stiffness: 0.05,
-            }));
-            World.add(world, matterEdges[i]);
-            edgesIn[i].scratch('matter', temp);
-            //temp._cyEle = nodeIn; //This wasn't needed because the edge never looks itself up.
-          }
-        }*/
+        }
       }
 
 
@@ -286,13 +257,24 @@
       mapNodes(nodes);
       mapEdges(edges);
 
-      var getPos = function (i, ele) {    
+      var getPos = function (i, ele) {
+        if (ele.parent().length !== 0) {
+          for (var j = 0; j < matterNodes.length; j++) {
+            if (matterNodes[j].shape.id === ele.parent().id()) {
+              return {
+                x: (matterNodes[j].shape.position.x - matterNodes[j].oldX) + nodes[i].position().x,
+                y: (matterNodes[j].shape.position.y - matterNodes[j].oldY) + nodes[i].position().y
+              };
+            }
+          }
+        } else {
           ele.scratch('matter').oldX = ele.position().x;
           ele.scratch('matter').oldY = ele.position().y;
           return {
             x: ele.scratch('matter').shape.position.x,
             y: ele.scratch('matter').shape.position.y
           };
+        }
       };
 
       var tickCount = 0;
@@ -322,14 +304,13 @@
 
   if( typeof module !== 'undefined' && module.exports ){ // expose as a commonjs module
     module.exports = register; // TODO fn w/ req manfred TODO
-  }
-
-  if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
+  } else if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
     define('cytoscape-matterjs', function(){
       return register;
     });
-  } else if( typeof cytoscape !== 'undefined' ){ // expose to global cytoscape (i.e. window.cytoscape)
-    register( cytoscape ); // TODO ck matter gl TODO
+  }
+  if( typeof cytoscape !== 'undefined' && typeof Matter !== 'undefined'/* && typeof MatterGravity !== 'undefined'*/){ // expose to global cytoscape (i.e. window.cytoscape)
+    register( cytoscape, Matter/*, MatterGravity */);
   }
 
 })();
