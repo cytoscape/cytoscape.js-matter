@@ -1,7 +1,7 @@
 ;(function(){ 'use strict';
 
   // registers the extension on a cytoscape lib ref
-  var register = function( cytoscape, Matter/*, MatterGravity*/ ){
+  var register = function( cytoscape, Matter ){
 
     if( !cytoscape ){ return; } // can't register if cytoscape unspecified
 
@@ -227,7 +227,6 @@
       // +------------------------------------------------------------------------+ //
       // +------------------------------------------------------------------------+ //
 
-      // TODO use same approach for edge <=> matter w/ scratch & ref
       function mapEdges(edgesIn){
         for (var i = 0; i < edgesIn.length; i++) {
 
@@ -284,7 +283,6 @@
         tickCount++;
 
         if ((tickCount % options.refresh) === 0) {
-          //console.log(matterNodes);
           nodes.layoutPositions(layout, options, getPos);
         }
 
@@ -309,8 +307,8 @@
       return register;
     });
   }
-  if( typeof cytoscape !== 'undefined' && typeof Matter !== 'undefined'/* && typeof MatterGravity !== 'undefined'*/){ // expose to global cytoscape (i.e. window.cytoscape)
-    register( cytoscape, Matter/*, MatterGravity */);
+  if( typeof cytoscape !== 'undefined' && typeof Matter !== 'undefined'){ // expose to global cytoscape (i.e. window.cytoscape)
+    register( cytoscape, Matter );
   }
 
 })();
