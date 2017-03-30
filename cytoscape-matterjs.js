@@ -133,7 +133,6 @@
           nodeIn.scratch('matter', temp);
           temp._cyEle = nodeIn;
         }
-
       }
 
       function handleCluster( cluster ){
@@ -258,14 +257,10 @@
 
       var getPos = function (i, ele) {
         if (ele.parent().length !== 0) {
-          for (var j = 0; j < matterNodes.length; j++) {
-            if (matterNodes[j].shape.id === ele.parent().id()) {
-              return {
-                x: (matterNodes[j].shape.position.x - matterNodes[j].oldX) + nodes[i].position().x,
-                y: (matterNodes[j].shape.position.y - matterNodes[j].oldY) + nodes[i].position().y
-              };
-            }
-          }
+          return {
+            x: (ele.parent().scratch('matter').shape.position.x - ele.parent().scratch('matter').oldX) + nodes[i].position().x,
+            y: (ele.parent().scratch('matter').shape.position.y - ele.parent().scratch('matter').oldY) + nodes[i].position().y
+          };
         } else {
           ele.scratch('matter').oldX = ele.position().x;
           ele.scratch('matter').oldY = ele.position().y;
