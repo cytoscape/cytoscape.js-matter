@@ -5,16 +5,35 @@
 
     if( !cytoscape ){ return; } // can't register if cytoscape unspecified
 
+    // TODO options for each force value (fns)
     var defaults = {
       // define the default options for your layout here
       refresh: 10, // iterations until thread sends an update
       fit: true,
-      gravity: -10,
+      displayMatter: false,
+      gravity: -1,
       globalAirFriction: 0.25,
-      clusters: [],
-      mass: [],
-      maxTicks: 2000,
+      floorSpeed: 0.05,
+      floorSpeedDecrease: 0.0001,
+      length: function( edge ){ return 60; },
+      stiffness: function( edge ){ return 0.01; }, // value or function that returns a value for edge stiffness force
+      childClusterDistance: function( node ){ return 60; },
+      childClusterStiffness: function( node ){ return 0.01; },
+      mass: function(node){return 10;},
+      maxTicks: 5000,
       maxSimulationTime: 5000 // time in ms before layout bails out
+    };
+
+    function isFunction( f ){
+      return typeof f === 'function';
+    }
+
+    var getOptVal = function( val, ele ){
+      if( isFunction(val) ){
+        return val( ele );
+      } else {
+        return val;
+      }
     };
 
     var extend = Object.assign || function( tgt ){
@@ -39,6 +58,7 @@
       var eles = options.eles;
       var nodes = eles.nodes();
       var edges = eles.edges();
+      var nonParentNodes = nodes.stdFilter(function( node ){ return !node.isParent(); });
 
       // matter.js aliases
       var Engine = Matter.Engine;
@@ -47,6 +67,7 @@
       var Bodies = Matter.Bodies;
       var Bounds = Matter.Bounds;
       var Events = Matter.Events;
+      var Render = Matter.Render;
       var Runner = Matter.Runner;
       var Query = Matter.Query;
       var Composite = Matter.Composite;
@@ -63,61 +84,44 @@
       world.gravity.scale = 0;
 
       // layout specific variables
-      var matterNodes = [];
-      var matterEdges = [];
-
-
+      var matterNodes = {};
+      var matterEdges = {};
+      var tickCount = 0;
+      var startTime = Date.now();
+      var averageSpeedList = [];
+      if(options.displayMatter){
+        var render = Render.create({
+          element: document.body,
+          engine: engine,
+          options: {
+            width: Math.min(document.documentElement.clientWidth, 800),
+            height: Math.min(document.documentElement.clientHeight, 600),
+            showAngleIndicator: true
+          }
+        });
+        Render.run(render);
+        Runner.run(runner,engine);
+      }
 
       // +------------------------------------------------------------------------+ //
       // +-----------------ADDS NODES TO THE MATTER JS SIMULATION-----------------+ //
       // +------------------------------------------------------------------------+ //
-      // +------------------------------------------------------------------------+ //
 
-      function mapNode(nodeIn) {
-        if (nodeIn.parent().length === 0) {
-          var mass = 10;
-          for (var j = 0; j < options.mass.length; j++) {
-            if (options.mass[j].id === nodeIn.id()) {
-              mass = options.mass[j].mass;
-            }
-          }
-          var temp;
-          if (nodeIn.children().length > 0) {
-            temp = {
-              shape: Bodies.rectangle(
-                nodeIn.position().x,
-                nodeIn.position().y,
-                nodeIn.width(),
-                nodeIn.height(),
-                {
-                  id: nodeIn.data().id,
-                  inertia: Infinity,
-                  mass: mass,
-                  gravity: options.gravity,
-                  frictionAir: options.globalAirFriction,
-                }
-              ),
-              parent: nodeIn.data().parent,
-              children: [],
-              oldX: nodeIn.position().x,
-              oldY: nodeIn.position().y
-            };
-            for (var j = 0; j < nodeIn.children().length; j++) {
-              temp.children[j] = nodeIn.children()[j].data().id;
-            }
-            matterNodes.push(temp);
-
-            World.addBody(engine.world, temp.shape);
-          } else {
-            temp = {
+      function getNode(nodeIn){
+        if(nodeIn === undefined){
+          return undefined;
+        }else if (matterNodes[nodeIn.data().id] === undefined) {
+          var mNode;
+          if(nodeIn.children().length !== 1){
+            mNode = {
               shape:Bodies.circle(
                 nodeIn.position().x,
                 nodeIn.position().y,
-                nodeIn.width() / 2,
+                30,
                 {
                   id: nodeIn.data().id,
                   inertia: Infinity,
-                  mass: mass,
+                  mass: getOptVal( options.mass, nodeIn ),
                   gravity: options.gravity,
                   frictionAir: options.globalAirFriction,
                 }
@@ -127,161 +131,115 @@
               oldX: nodeIn.position().x,
               oldY: nodeIn.position().y
             };
-            matterNodes.push(temp);
-            World.addBody(engine.world, temp.shape);
+            World.addBody(engine.world, mNode.shape);
+            mNode._cyEle = nodeIn;
+            matterNodes[nodeIn.data().id] = {node:mNode, children:nodeIn.children().length};
+          }else{
+            mNode = getNode(nodeIn.children()[0]);
           }
-          nodeIn.scratch('matter', temp);
-          temp._cyEle = nodeIn;
+          nodeIn.scratch('matter', mNode);
+          return mNode;
+        } else {
+          return matterNodes[nodeIn.data().id].node;
         }
       }
 
-      function handleCluster( cluster ){
-        var cNodes = cluster.nodes;
-
-        if(cluster.center !== undefined) {
-
-          var xTemp = cluster.center.x;
-          var yTemp =  cluster.center.y;
-
-          for (var j = 0; j < cNodes.length; j++) {
-            var node = cNodes[j];
-            for (var k = 0; k < matterNodes.length; k++) {
-              if (matterNodes[k].shape.id === node) {
-                World.add(world, Constraint.create({
-                  bodyA: matterNodes[k].shape,
-                  pointB: { x: xTemp, y: yTemp },
-                  length: cluster.distanceFromCluster,
-                  stiffness: cluster.elasticityToCluster
-                }));
-              }
-            }
-          }
-
-        } else if(cluster.random !== undefined) {
-
-          var xTemp = Math.random()*(cluster.random.xMax-cluster.random.xMin)+cluster.random.xMin;
-          var yTemp = Math.random()*(cluster.random.yMax-cluster.random.yMin)+cluster.random.yMin;
-
-          for (var j = 0; j < cNodes.length; j++) {
-            var node = cNodes[j];
-
-            for (var k = 0; k < matterNodes.length; k++) {
-              if (matterNodes[k].shape.id === node) {
-                World.add(world, Constraint.create({
-                  bodyA: matterNodes[k].shape,
-                  pointB: { x: xTemp, y: yTemp },
-                  length: cluster.distanceFromCluster,
-                  stiffness: cluster.elasticityToCluster
-                }));
-              }
-            }
-          }
-
-        } else {
-
-          var xAvg = 0;
-          var yAvg = 0;
-          for (var j = 0; j < cNodes.length; j++) {
-            var n = cNodes[j];
-            var p = n.position();
-            xAvg += p.x;
-            yAvg += p.y;
-          }
-
-          for (var j = 0; j < cNodes.length; j++) {
-            var node = cNodes[j];
-
-            for (var k = 0; k < matterNodes.length; k++) {
-              if (matterNodes[k].shape.id === node) {
-                World.add(world, Constraint.create({
-                  bodyA: matterNodes[k].shape,
-                  pointB: { x: xAvg/cNodes.length, y: yAvg/cNodes.length },
-                  length: cluster.distanceFromCluster,
-                  stiffness: cluster.elasticityToCluster
-                }));
-              }
-            }
-          }
-
+      function mapNode(nodeIn) {
+        var tempMatterNode = getNode(nodeIn);
+        var tempMatterParent = getNode(nodeIn._private.parent);
+        if(tempMatterParent !== undefined){
+          var compoundNodeEdge = Constraint.create({
+            bodyA: tempMatterNode.shape,
+            bodyB: tempMatterParent.shape,
+            length: getOptVal( options.childClusterDistance, nodeIn ),
+            stiffness: getOptVal( options.childClusterStiffness, nodeIn ),
+          });
+          tempMatterParent.children.push(tempMatterNode);
+          matterEdges[tempMatterNode.shape.id + '-' + tempMatterParent.shape.id] = compoundNodeEdge;
+          nodeIn.scratch('matterParentLink', compoundNodeEdge);
+          World.add(world, compoundNodeEdge);
         }
+        return 0;
       }
 
       function mapNodes(nodesIn) {
         for (var i = 0; i < nodesIn.length; i++) {
           mapNode(nodesIn[i]);
         }
-
-        var clusters = options.clusters;
-        for( var i = 0; i < clusters.length; i++ ){
-          handleCluster( clusters[i] );
-        }
-
         return 0;
       }
-
-
 
       // +------------------------------------------------------------------------+ //
       // +----------------ADDS EDGES TO THE MATTER JS SIMULATION------------------+ //
       // +------------------------------------------------------------------------+ //
-      // +------------------------------------------------------------------------+ //
+
+      function mapEdge(edgeIn){
+        var tempSource;
+        var tempTarget;
+
+        var src = edgeIn.source();
+        var tgt = edgeIn.target();
+        var matterEdge = Constraint.create({
+          bodyA: src.scratch('matter').shape,
+          bodyB: tgt.scratch('matter').shape,
+          length: getOptVal( options.length, edgeIn ),
+          stiffness: getOptVal( options.stiffness, edgeIn ),
+        });
+        matterEdges[src.data().id + '-' + tgt.data().id] = matterEdge;
+        World.add(world, matterEdge);
+        edgeIn.scratch('matter', matterEdge);
+      }
 
       function mapEdges(edgesIn){
-        for (var i = 0; i < edgesIn.length; i++) {
-
-          var tempSource;
-          var tempTarget;
-
-          var temp = Constraint.create({
-            bodyA: edgesIn[i].source().scratch('matter').shape,
-            bodyB: edgesIn[i].target().scratch('matter').shape,
-            length: 400,
-            stiffness: 0.05,
-          });
-          matterEdges.push(temp);
-          World.add(world, matterEdges[i]);
-          edgesIn[i].scratch('matter', temp);
+        for(var i = 0; i < edgesIn.length; i++){
+          mapEdge(edgesIn[i]);
         }
       }
 
-
-
-
       // +------------------------------------------------------------------------+ //
       // +-------------EVENT MANAGEMENT OF THE MATTER JS SIMULATION---------------+ //
-      // +------------------------------------------------------------------------+ //
       // +------------------------------------------------------------------------+ //
 
       mapNodes(nodes);
       mapEdges(edges);
 
-      var getPos = function (i, ele) {
-        if (ele.parent().length !== 0) {
-          return {
-            x: (ele.parent().scratch('matter').shape.position.x - ele.parent().scratch('matter').oldX) + nodes[i].position().x,
-            y: (ele.parent().scratch('matter').shape.position.y - ele.parent().scratch('matter').oldY) + nodes[i].position().y
-          };
-        } else {
-          ele.scratch('matter').oldX = ele.position().x;
-          ele.scratch('matter').oldY = ele.position().y;
-          return {
-            x: ele.scratch('matter').shape.position.x,
-            y: ele.scratch('matter').shape.position.y
-          };
-        }
+      var getPos = function ( ele, i) {
+        var p = ele.scratch('matter').shape.position;
+        return {
+          x: p.x,
+          y: p.y
+        };
       };
 
-      var tickCount = 0;
-      var startTime = Date.now();
+      function computeAverageSpeed(){
+        var averageSpeed = 0;
+        for(var i = 0; i < nodes.length; i++){
+          averageSpeed += Math.sqrt(Math.pow(nodes[i].scratch('matter').shape.velocity.x, 2) + Math.pow(nodes[i].scratch('matter').shape.velocity.y, 2));
+        }
+        averageSpeed = averageSpeed/nodes.length;
+        averageSpeedList.push(averageSpeed);
+        if(averageSpeedList.length > 5){
+          averageSpeedList.shift();
+        }
+      }
+
       Events.on(runner, 'afterTick', function () {
         var now = Date.now();
+        var duration = now - startTime;
+
         tickCount++;
 
         if ((tickCount % options.refresh) === 0) {
-          nodes.layoutPositions(layout, options, getPos);
+          nonParentNodes.positions(getPos);
         }
 
-        if (tickCount >= options.maxTicks || now - startTime >= options.maxSimulationTime) {
+        computeAverageSpeed();
+
+        if (tickCount >= options.maxTicks || duration >= options.maxSimulationTime) {
+          Runner.stop(runner);
+        }else if(averageSpeedList[4] < options.floorSpeed){
+          Runner.stop(runner);
+        }else if(Math.abs(averageSpeedList[0] - averageSpeedList[4]) < options.floorSpeedDecrease){
           Runner.stop(runner);
         }
       });
@@ -296,7 +254,9 @@
   };
 
   if( typeof module !== 'undefined' && module.exports ){ // expose as a commonjs module
-    module.exports = register; // TODO fn w/ req manfred TODO
+    module.exports = function( cytoscape, Matter ){
+      register( cytoscape, Matter || require('matter-js') ); // TODO npm module name of matter?
+    };
   } else if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
     define('cytoscape-matterjs', function(){
       return register;
