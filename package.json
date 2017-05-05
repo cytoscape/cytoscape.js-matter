@@ -1,0 +1,44 @@
+{
+  "name": "cytoscape-matterjs",
+  "version": "0.0.0",
+  "description": "",
+  "main": "cytoscape-matterjs.js",
+  "spm": {
+    "main": "cytoscape-matterjs.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cytoscape-MatterJS.git"
+  },
+  "keywords": [
+    "cytoscape",
+    "cyext"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/cytoscape-MatterJS/issues"
+  },
+  "homepage": "https://github.com/cytoscape-MatterJS",
+  "devDependencies": {
+    "browserify": "^14.0.0",
+    "eslint": "^3.15.0",
+    "eslint-config-airbnb-base": "^11.1.0",
+    "eslint-plugin-import": "^2.2.0",
+    "gulp": "^3.8.8",
+    "gulp-jshint": "^1.8.5",
+    "gulp-prompt": "^0.1.1",
+    "gulp-replace": "^0.4.0",
+    "gulp-shell": "^0.2.9",
+    "jshint-stylish": "^1.0.0",
+    "run-sequence": "^1.0.0"
+  },
+  "peerDependencies": {
+    "cytoscape": "^2.7.0"
+  },
+  "dependencies": {
+    "matter-js": "^0.12.0"
+  }
+}
